@@ -1,36 +1,39 @@
 <?php
 require_once 'AuthController.php';
+require_once 'videoDataClass.php';
 
 $keyword = "";
 $category = 0;
 
 if (isset($_GET['k'])) {
 	$keyword = $_GET['k'];
-	if (isset($_GET['c'])) $category = $_GET['c'];
+	$category = isset($_GET['c'])?$_GET['c']:0;
+	$genre = isset($_GET['g'])?$_GET['g']:0;
 	$page = isset($_GET['p'])?$_GET['p']:1;
-	$category = $category?$category:0;
-	$userID = isset($_GET['u'])?$_GET['u']:0;
-	selectItems($keyword,$category,$page);
-} else if (isset($_GET['u'])) {
-	$imageurl = $_GET['u'];
+	$userGroup = isset($_GET['u'])?$_GET['u']:0;
+	selectItems($keyword,$category,$genre,$page);
 }
 
-function selectItems($keyword, $category, $page) {
+function selectItems($keyword, $category, $genre, $page) {
+	global $userGroup;
+	
 	$maxItems = 32;
+	$targetDir = 'image';
+	
 	$html = <<<EOF
 <script>
 $(function() {
 	$('#prevPage').click(function() {
-		getImages('$keyword', $category, $page-1);
+		getImages('$keyword', $category, $genre, $page-1);
 	});
 	$('#nextPage').click(function() {
-		getImages('$keyword', $category, $page+1);
+		getImages('$keyword', $category, $genre, $page+1);
 	});
 });
 </script>
 EOF;
 	$offset = ($page - 1) * $maxItems;
-	$files = getImageList($keyword, $category, $offset, $maxItems);
+	$files = getImageList($keyword, $category, $genre, $offset, $maxItems);
 	$i=0;
 	if (count($files)) {
 		echo "\n<table>\n";
@@ -39,17 +42,19 @@ EOF;
 			if ($j==0) echo "<tr>\n";
 			$imageId = $item['image_id'];
 			$title = $item['title'];
-			$fileName = $item['filename'];
-			$content = "<a href='images/".$fileName."' target='_blank'>"
-					.'<img src="images/'.$fileName
+			$file = $item['filename'];
+			$thumb = $item['thumbnail'];
+			$gi = $item['group_id'];
+			$imageObj = new imageDataClass(0,$imageId,$title,$file,$gi);
+			// this is a hack, may be cleaned up later
+			$content = "<a href='".$imageObj->getFilePath()."' target='_blank'>"
+					.'<img src="'.$imageObj->getThumbPath()
 					.'" style="max-width:100px;max-height:62px;"></a>';
-			$content .= "<br><input type='checkbox' class='incitem' name='itemChosen[]'"
-					." value='".$i."'>"
-					.$title;
+			$content .= "<br><input type='checkbox' id='im$i' class='incitem' name='itemChosen[]'"
+					." value='".$i."'><label for='im$i'><span></span></label>".$title;
 			$content .= "<input type='hidden' name='imageId$i' value='".$imageId."'>";
 			$content .= "<input type='hidden' name='title$i' value='".$title."'>";
-			$content .= "<input type='hidden' name='file$i' value='".$fileName."'>";
-//			$content .= "<br>";
+			$content .= "<input type='hidden' name='file$i' value='".$file."'>";
 			echo "<td style='padding:5px;font-size:12px;'>".$content."</td>\n";
 			$i++;
 			if ($i>=$maxItems) {
@@ -74,14 +79,24 @@ EOF;
 	echo $html;
 }
 
-function getImageList($keyword, $category, $offset, $numItems) {
-	global $userID;
+function getImageList($keyword, $category, $genre, $offset, $numItems) {
+	global $userGroup;
 	if ($category)
-		$sql = "select * from image where category=$category and keywords like '%"
-				.$keyword."%' and isnull(user_id) or user_id=$userID limit ".$offset.",".$numItems;
+		$catSql = "category=$category and ";
 	else
-    	$sql = "select * from image where keywords like '%$keyword%' and isnull(user_id) or user_id=$userID limit "
+		$catSql = '';
+	if ($genre)
+		$genreSql = "genre=$genre and ";
+	else
+		$genreSql = '';
+	
+	if ($keyword)
+    	$sql = "select * from image where ".$catSql.$genreSql."keywords like '%$keyword%' and (group_id=0 or group_id=$userGroup) and reuse=1 limit "
     			.$offset.",".$numItems;
+    else
+    	$sql = "select * from image where ".$catSql.$genreSql."(group_id=0 or group_id=$userGroup) and reuse=1 limit ".$offset.",".$numItems;
+
+
 	$result = getDB($sql);
 	return $result;
 }

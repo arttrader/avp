@@ -9,8 +9,8 @@ class videoCreatorClass {
 	private $fadeoutLen = 3;
 	private $trueDuration;
 
-	public $fontFile = 'fonts/HK5PNW6.otf';
-	public $fontFile2 = 'fonts/ヒラギノ角ゴ ProN W6.otf';
+	public $fontFile = 'fonts/ヒラギノ角ゴ ProN W6.otf';
+	public $fontFile2 = 'fonts/hiragino-kakugo-pron-w6.otf';
 
 	public $groupID;
 	public $serverID;
@@ -188,11 +188,7 @@ class videoCreatorClass {
 		if ($this->textFlow) {
 			echo "Adding scrolling text to $iFiles[$i]\n";
 			$this->setProdStatus(5);
-			if ($this->textFlow<8)
-				$this->addScrollText($text, $tmpDir.$iFiles[$i], $tmpDir.$iFiles[$i+1],
-					$this->textFlow, $videoDef->fontSize, $videoDef->scrollSpeed);
-			else
-				$this->addVScrollText($text, $tmpDir.$iFiles[$i], $tmpDir.$iFiles[$i+1],
+			$this->addScrollText($text, $tmpDir.$iFiles[$i], $tmpDir.$iFiles[$i+1],
 					$this->textFlow, $videoDef->fontSize, $videoDef->scrollSpeed);
 			$i++;
 		}
@@ -315,7 +311,7 @@ class videoCreatorClass {
 		exec($cmd);
 	}
 
-	function addScrollText($text, $inVid, $outVid, $pos=1, $fs, $speed=0) {
+	function addScrollText($text, $inVid, $outVid, $pos=1, $fs, $speed=1) {
 		$tmpTextFile = $this->tmpDir."textfile.txt";
 
 //		if (file_exists($outVid)) unlink($outVid);
@@ -367,9 +363,10 @@ class videoCreatorClass {
 		$d = $this->trueDuration;
 		// to match text and voice, when fs=42 0.01325757/42 = 0.00031565642857 ,
 		// this value is almost doubled since changing to mb_strlen
-		$cf = (1+$speed/10)*0.0008*$fs*$tla/$d;
-//		else
-//			$cf = 0.0008*$fs*$tla/$d;
+		if ($speed)
+			$cf = (1+$speed/10)*0.0008*$fs*$tla/$d;
+		else
+			$cf = 0.0008*$fs*$tla/$d;
 		// note: still a little too fast when the text is mixed with number or roman
 		// 2nd degree paranomial to fit the required curve closer
 
@@ -388,72 +385,17 @@ class videoCreatorClass {
 		}
 	}
 
-	function addVScrollText($text, $inVid, $outVid, $pos=8, $fs, $speed=0) {
-		// this involves breaking text into as many lines as necessary
-		// max width as a guide to cut a line that is longer
-		// then drawtext each line with y as a function of t
-		// just like with horizontal scroll
-		// if the text is long, it may not be feasible since the command line gets
-		// too long
-		$stripped = strip_tags(trim(preg_replace('/\s+/', ' ', $text)));
-		$inArr = explode("\n", $stripped);
-		$maxW = ceil(1000/$fs);
-		$lineSpace = 18;
-		// need to go through each line and if a line is too long
-		// cut it into as many lines as necessary, and insert them into the array
-		$revArr = [];
-		foreach ($inArr as $line) {
-			$ll = mb_strlen($line, 'UTF-8');
-			echo $line."\n";
-			echo "Line width ".$ll."\n";
-			if ($ll>$maxW) {
-				$subArr = $this->mb_str_split($line, $maxW);
-				echo "Too long, so splitting into ".count($subArr)."...\n";
-				$revArr = array_merge($revArr, $subArr);
-			} else
-				$revArr[] = $line;
-		}
-//		$revArr = $inArr;
-		
-		$nlines = count($revArr);
-		echo "Text has $nlines lines\n";
-		
-		$d = $this->trueDuration;
-		$cf = (1+$speed/10)*0.00179104477612*$nlines*$fs/$d;
-		$vsCode = '';
-		for ($i=0; $i<$nlines; $i++) {
-			$vsCode .= ",drawtext=x=(w-tw)/2:y=h+".($i*($fs+$lineSpace))."-h*".$cf
-				."*t:fontsize=$fs:fontcolor=yellow:fontfile=".$this->fontFile
-				.":text='".$revArr[$i]."'";
-		}
-		$cmd = $this->ffmpeg." -y -i $inVid -vf \"format=yuv444p $vsCode, format=yuv420p\" -acodec copy ".$outVid;
-		echo $cmd."\n";
-		exec($cmd);
-		if (!file_exists($outVid))
-			$this->errorEnd("Error adding vertical scroll to ".$inVid);
-	}
-
-	function mb_str_split($str, $split_length) {
-		$chars = [];
-		$len = mb_strlen($str,'UTF-8');
-		for ($i = 0; $i < $len; $i+=$split_length ) {
-			// only split_length chars to go to the array
-			$chars[] = mb_substr($str, $i, $split_length,'UTF-8');
-		}
-		return $chars;
-	}
-
 	function addAnnotation($vRef, $inVid, $outVid) {
 		$antxtArr = explode("\n", $vRef->annotation);
 		$as = $vRef->annoStart;
 		$ae = $vRef->annoEnd;
 		$pos = $vRef->useTextFlow;
 		$fs = $vRef->fontSize;
-		//var_dump($antxtArr);
+		var_dump($antxtArr);
 		// need to calculate width of text here and set the size of box accordingly
 		$nlines = count($antxtArr);
 		echo "Annotation has $nlines lines\n";
-		$w = mb_strlen($antxtArr[0],'UTF-8');
+		$w = mb_strlen($antxtArr[0],'utf8');
 		if ($nlines>1)
 			for ($i=1; $i<$nlines; $i++)
 				if (mb_strlen($antxtArr[$i],'utf8')>$w) 
@@ -497,8 +439,8 @@ class videoCreatorClass {
 	
 	function mixVoiceMusic($inVoice, $inMusic, &$outFile, $musicVolume=1.0) {
 		$temp = $this->tmpDir.'tempmix.aac';
-		$vVol = 2.88; // 1.8*2.0*0.8
-		$mVol = 0.4*$musicVolume;
+		$vVol = 2.0;
+		$mVol = 0.5*$musicVolume;
 		$fl = $this->fadeoutLen;
 		$d = $this->trueDuration;
 		$md = getDuration($inMusic);
@@ -687,7 +629,7 @@ EOF;
 		default:
 			$voice = 'nozomi';
 		}
-		$volume = $vDef->voiceVolume;
+		$volume = 1.8*$vDef->voiceVolume;
 		$speed = $vDef->voiceSpeed;
 		$pitch = $vDef->voicePitch;
 		$range = $vDef->voiceRange;

@@ -1,5 +1,6 @@
 <?php
 require_once 'AuthController.php';
+require_once 'videoDataClass.php';
 
 $type = 0;
 $category = 0;
@@ -9,22 +10,27 @@ if (isset($_GET['t'])) {
 	if (isset($_GET['c'])) $category = $_GET['c'];
 	$keyword = $_GET['k'];
 	$page = isset($_GET['p'])?$_GET['p']:1;
-	$userID = isset($_GET['u'])?$_GET['u']:0;
+	$userGroup = isset($_GET['u'])?$_GET['u']:0;
+	$userLevel = isset($_GET['l'])?$_GET['l']:3;
 	selectItems($type,$category,$page);
 } else if (isset($_GET['u'])) {
 	$imageurl = $_GET['u'];
 }
 
 function selectItems($type, $category, $page) {
+	global $userGroup;
+	
 	$maxItems = 30;
+	$targetDir = "video";
+	
 	$html = <<<EOF
 <script>
 $(function() {
 	$('#prevPage').click(function() {
-		getVideo('$type', $category, $page-1);
+		getVideo('', $category, $type, $page-1);
 	});
 	$('#nextPage').click(function() {
-		getVideo('$type', $category, $page+1);
+		getVideo('', $category, $type, $page+1);
 	});
 });
 </script>
@@ -41,19 +47,29 @@ EOF;
 			//var_dump($item);
 			$videoId = $item['video_id'];
 			$title = $item['title'];
-			$fileName = $item['filename'];
-			echo "<input type='hidden' name='videoId$i' value='".$videoId."'>";
-			echo "<input type='hidden' name='title$i' value='".$title."'>";
-			echo "<input type='hidden' name='file$i' value='".$fileName."'>";
+			$file = $item['filename'];
+			$thumb = $item['thumbnail'];
+			$gi = $item['group_id']?$item['group_id']:0;
+			$videoObj = new videoDataClass(0,$videoId,$title,$file,0,$gi);
+			$videoObj->thumbnail = $thumb;
+			if ($thumb)
+				$video = '<img style="max-width:200px;max-height:160px;" src="'
+					.$videoObj->getThumbPath().'" />';
+			else
+				$video = '<video style="max-width:200px;max-height:160px;">'
+					.'<source src="'.$videoObj->getFilePath().'"></video>';
 			$content = '<td style="font-size:12px;"><span class="pop1" name="'
-					.$title.'"><video style="max-width:200px;max-height:160px;">'
-					.'<source src="video/'.$fileName.'"></video></span>';
-			$content .= "<br><input type='checkbox' class='incitem' name='itemChosen[]'"
-					." value='".$i."'>"
-					."<a href='video/".$fileName."' target='_blank'>".$title."</a>";
+					.$title.'">'.$video.'</span>';
+			$content .= "<br><input type='checkbox' id='v$i' class='incitem' name='itemChosen[]'"
+					." value='".$i."'><label for='v$i'><span></span></label>"
+					."<a href='".$videoObj->getFilePath()."' target='_blank'>".$title."</a>";
 			$content .= "<br>";
 			echo "<td　style='padding:5px;'><div id='htmlDisplay"
-					.$i."' class='shown'>".$content."</div></td>\n";
+					.$i."' class='shown'>".$content;
+			echo "<input type='hidden' name='videoId$i' value='".$videoId."'>";
+			echo "<input type='hidden' name='title$i' value='".$title."'>";
+			echo "<input type='hidden' name='file$i' value='".$file."'>";
+			echo "</div></td>\n";
 			$i++;
 			if ($i>=$maxItems) {
 				echo "</tr>";
@@ -72,18 +88,21 @@ EOF;
 	echo "<input type='hidden' name='menuselected' value='2'><br>\n";
 	if ($page>1)
 		echo "<input type='button' class='prevPage' id='prevPage' name='prevButton' value='prev'> &nbsp; ";
-	if ($i>$maxItems)
+	if ($i==$maxItems)
 		echo "<input type='button' class='nextPage' id='nextPage' name='nextButton' value='next'>";
 	echo $html;
 }
 
 function getVideoList($type, $category, $offset, $numItems) {
-	global $userID;
-	if ($category)
+	global $userLevel,$userGroup;
+	if ($userLevel<3) {
+		$sql = "select * from video where category in (1,2,3) and video_type="
+				.$type." and group_id=0 limit ".$offset.",".$numItems;
+	} else if ($category)
 		$sql = "select * from video where category=$category and video_type="
-				.$type." and isnull(user_id) or user_id=$userID limit ".$offset.",".$numItems;
+				.$type." and (isnull(group_id) or group_id=0 or group_id=$userGroup) limit ".$offset.",".$numItems;
 	else
-    	$sql = "select * from video where video_type=$type and isnull(user_id) or user_id=$userID limit "
+    	$sql = "select * from video where video_type=$type and (isnull(group_id) or group_id=0 or group_id=$userGroup) limit "
     			.$offset.",".$numItems;
 	$result = getDB($sql);
 	return $result;

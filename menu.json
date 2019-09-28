@@ -1,0 +1,34 @@
+[
+{ "title":"HOME", "link":"index.php", "level":1 },
+{ "title":"リソース", "link":"#", "level":2, "subs": [
+	{ "title":"音楽素材", "link":"manageMusic.php", "level":2, "target":1 },
+	{ "title":"画像素材", "link":"manageImage.php", "level":2, "target":1 },
+	{ "title": "動画素材", "link":"manageVideo.php", "level":4, "target":1 },
+	{ "title": "記事素材", "link":"manageArticle.php", "level":2, "target":1 }
+] },
+{ "title":"カテゴリー", "link":"#", "level":2, "subs": [
+	{ "title":"カテゴリー設定", "link":"manageCategory.php", "level":2, "target":1 },
+	{ "title":"ジャンル設定", "link":"manageGenre.php", "level":2, "target":1 }
+] },
+{ "title":"動画制作", "link":"#", "level":2, "subs": [
+	{ "title":"個別動画制作管理", "link":"manageVideoProduction.php", "level":2, "target":1 },
+	{ "title":"ランダム一括動画制作", "link":"manageRndVideoProd.php", "level":4, "target":1 }
+] },
+{ "title":"外注管理", "link":"#", "level":4, "subs": [
+	{ "title":"外注アカウント管理", "link":"manageOutsourcing.php", "level":4, "target":1 },
+	{ "title":"外注タスク管理", "link":"manageOSJobs.php", "level":4, "target":1 }
+] },
+{ "title":"外注さん用", "link":"#", "level":1, "subs": [
+	{ "title": "タスク", "link":"osTasks.php", "level":1, "target":1 },
+	{ "title": "記事追加", "link":"dropArticle.php", "level":1, "target":1 }
+] },
+
+{ "title":"お知らせ", "link":"#", "level":2, "subs": [
+	{ "title":"What's new", "link":"whatsnew.pdf", "level":2, "target":1 },
+	{ "title":"使用上の注意", "link":"attention.pdf", "level":2, "target":1 },
+	{ "title":"現在の問題点", "link":"knownissues.pdf", "level":2, "target":1 }
+] },
+{ "title":"LOGOUT", "link":"#", "level":0, "subs": [
+	{ "title":"ログアウト", "link":"logout.php", "level":0 }
+] }
+]

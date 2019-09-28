@@ -1,44 +1,32 @@
 <?php
-require_once 'AuthController.php';
 require_once 'videoDataClass.php';
 
 if ($_POST) {
 	$send = $_POST['send'];
 	$mItemRaw = $_POST['mItemData'];
 	$fid = isset($_POST['fi'])?$_POST['fi']:'';
-	$groupID = isset($_POST['ug'])?$_POST['ug']:0;
-	$category = isset($_POST['ct'])?$_POST['ct']:0;
+	if (isset($_POST['fn'])) {
+		parse_str($_POST['fn'], $files);
+	}
 } else if ($_GET) {
 	$send = $_GET['send'];
 	$mItemRaw = $_GET['mItemData'];
 	$fid = isset($_GET['fi'])?$_GET['fi']:'';
-	$groupID = isset($_POST['ug'])?$_POST['ug']:0;
+	if (isset($_GET['fn'])) {
+		parse_str($_GET['fn'], $files);
+		//echo $_GET['fn'];
+		//writeLog(serialize($files));
+	}
 } else {
-	writeLog("Error: no parameters");
 	die('no parameters');
 }
-//writeLog("post: ".var_export($_POST,true));
 
 $mItemData = new mDataClass();
-if ($mItemRaw) $mItemData->decode($mItemRaw);
+if ($mItemRaw) {
+	$mItemData->decode($mItemRaw);
+}
 
-if ($send==="upload") { // has to be first because of up command
-	if ($debugmode) writeLog("upload command");
-	if (isset($_FILES['file'])) {
-		$fileArr = rearangeFiles($_FILES["file"]);
-		foreach ($fileArr as $file) {
-			$title = pathinfo($file['name'], PATHINFO_FILENAME);
-			$fname = str_replace(' ','',$file['name']);
-			$item = new imageDataClass(0,0,'','',$groupID);
-			$item->reuse = 0;
-			if ($item->upload($title,$file,$category,0,'')) {
-				$mItemData->push($item);
-				$mItemData->imageChanged = true;
-				if ($debugmode) writeLog("upload complete! [".$fname."] id=".$item->imageId);
-			}
-		}
-	}
-} else if (strpos($send,"dp")!==false) {
+if (strpos($send,"dp")!==false) {
 	$indx = substr($send, 2);
 	$tmpobj = $mItemData->offsetGet($fid);
 	$mItemData->offsetUnset($fid);
@@ -85,52 +73,37 @@ if ($send==="upload") { // has to be first because of up command
 	foreach ($itemChosen as $i) {
 		$id = $_POST['imageId'.$i];
 		$title = $_POST['title'.$i];
-		$file = $_POST['file'.$i];
-		$item = new imageDataClass(null,$id,$title,$file);
+		$item = new articleDataClass(null,$id,$title,'',null);
 		$mItemData->push($item);
 	}
+} else if ($send==="upload") {
+	// this has to be changed for csv file reading
+	$fname = str_replace(' ','',$files['name']);
+	//writeLog("upload file ".$fname);
+	$item = new articleDataClass(0,0,'','');
+//	$item->upload($fname,$files,0,0,'');
+	$mItemData->push($item);
 }
 
 
 $n = $mItemData->count();
-
-$exHtml = '';
-if ($n>0) {
-	$col = 1;
+if ($n) {
+	$exHtml = '<table>';
 	for ($i=0; $i<$n; $i++) {
 		$item = $mItemData->offsetGet($i);
-//		writeLog($i." path=".$item->getThumbPath());
-		$exHtml .= "<img class='imagecell' id='mv".$i
-			."' style='max-width:100px;max-height:62px;' src='".$item->getThumbPath()."'>"
-			."<input type='button' class='delImageBtn' name='send' value='x' id='dl".$i."'> ";
-		$col++;
-		if ($col>9) {
-			$exHtml .= "<br>";
-			$col = 1;
-		}
+		$exHtml .= '<tr class="articlecell" id="mv'.$i
+			.'" style="width:620px;padding:0;margin:0;"><td style="width:200px;font-size:11px;">'
+			.mb_strimwidth($item->title,0,42,'...','UTF-8').'</td><td style="font-size:10px;">'
+			.mb_strimwidth($item->getText(),0,60,'...','UTF-8')
+			.'</td><td><input type="button" class="delArticleBtn" name="send" value="x" id="dl'.$i.'"></td></tr>';
 	}
-//	$exHtml .= "\n";
-//	writeLog($exHtml);
-}
+	$exHtml .= "</table>\n";
+} else $exHtml = '';
+
+
+
 $result = array(
 	'exhtml' => $exHtml,
 	'mitemdata' => $mItemData->encode()
 	);
-$json = json_encode($result);
-echo $json;
-//writeLog($json);
-
-
-function rearangeFiles(&$file_post) {
-    $file_ary = array();
-    $file_count = count($file_post['name']);
-    $file_keys = array_keys($file_post);
-
-    for ($i=0; $i<$file_count; $i++) {
-        foreach ($file_keys as $key) {
-            $file_ary[$i][$key] = $file_post[$key][$i];
-        }
-    }
-
-    return $file_ary;
-}
+echo json_encode($result);

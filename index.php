@@ -16,7 +16,11 @@ if (getenv('HTTP_X_FORWARDED_FOR')) {
 }
 
 $needlogin = false;
+$userLevel = 0;
 
+// set session parameter
+$session_expiration = time() + 3600 * 24 * 2; // +2 days
+session_set_cookie_params($session_expiration);
 //start session
 session_start();
 if ($_POST) {
@@ -24,19 +28,20 @@ if ($_POST) {
 	$pass = $_POST['pass'];
 	$authController = new AuthController();
 	if ($authController->login($key, $pass, $ipaddress, $pipaddress, $uagent, $ref))
-		$_SESSION['authController'] = serialize($authController);
+		$_SESSION[$sessionName] = serialize($authController);
 } else {
 	$key = "";
 	$pass = "";
 }
-if (isset($_SESSION['authController'])) {
-	$authController = unserialize($_SESSION['authController']);
+if (isset($_SESSION[$sessionName])) {
+	$authController = unserialize($_SESSION[$sessionName]);
 	if (is_object($authController) && $authController->checkLogin()) {
 		if ($authController->checkLogin()) {
 			$name = $authController->name;
 			$userID = $authController->userId;
-			if ($appversion>=7)
-				if ($authController->userLevel<7) {
+			$userLevel = $authController->userLevel;
+			if ($appversion>=1)
+				if ($userLevel<1) {
 					$needlogin = true;
 					echo "ここはVideo Producerユーザーのみご利用いただけます";
 					$authController->logout();
@@ -53,56 +58,82 @@ if (isset($_SESSION['authController'])) {
 <head>
 	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 	<title>AUTO VIDEO PRODUCER</title>
+	<link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+	<link rel="icon" href="/favicon.ico" type="image/x-icon">
 	<link rel='stylesheet' type='text/css' href='style.css'>
 	<meta http-equiv="content-script-type" content="text/javascript" />
-	<script src='http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
+	<script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
+	<script src="//code.angularjs.org/1.4.5/angular.min.js"></script>
 	<script type='text/javascript' src="../js/jquery.bpopup.min.js"></script>
-	<script type='text/javascript' src='../js/menu_jquery.js'></script>
+	<script type='text/javascript' src='../js/menu_app.js'></script>
 	<style>
-#popup {
+.login{
+width:450px;
+height:250px;
+}
+.loginbox{
+position:relative;
+margin-top:30px;
+border:0;
+width :450px;
+}
+.loginbox tr{margin:0 60px; 0 auto;}
+.loginbox td{
+padding-left:15px;
+}
+.loginbox input{
+font-size:large;
+}
+.loginbuttonclass {
+    background-image:url(img/login_off.png);
+    color:transparent;
+    background-color:transparent;
+    background-repeat:no-repeat;
+    width:290px;
+    height:62px;
+    border:0px;
+}
+.loginbuttonclass:hover{ 
+    background-image:url(img/login_on.png);
+}
+#popup1 {
     background-color:transparent;
     border-radius:2px;
-    color:black;
     display:none; 
-    padding:0px;
-    min-width:400px;
-    min-height:250px;
+    padding:0;
+    width:450px;
+    height:250px;
+	box-shadow: 0 0 40px #AAA;
+background-image:url(img/login.png);
+background-position:top center;
+background-repeat:no-repeat;
 }
-
-#popup .bMulti {
+/*
+#popup1 .bMulti {
     background-color: #fff;
     border-radius: 10px 10px 10px 10px;
     box-shadow: 0 0 5px 5px #999;
     color: #111;
-    display: none;
-    min-width: 600px;
-    padding: 25px
+    display:none;
+    width: 450px;
+    padding:0
+}
+*/
+.loginLabel {
+	width:120px; 
+	text-align:right;
+	color:white;
 }
 	</style>
 </head>
 <body>
-<div id='cssmenu'>
+<div id='cssmenu' ng-app="menuApp" ng-controller="menuController">
 <ul>
-   <li class='active'><a href='index.php'><span>Home</span></a></li>
-   <li class='has-sub'><a href='#'><span>MATERIALS</span></a>
-      <ul>
-         <li><a href='manageMusic.php' target='_blank'><span>音楽素材</span></a></li>
-         <li><a href='manageImage.php' target='_blank'><span>画像素材</span></a></li>
-         <li><a href='manageVideo.php' target='_blank'><span>動画素材</span></a></li>
-         <li class='last'><a href='manageArticle.php' target='_blank'><span>記事素材</span></a></li>
-      </ul>
-   </li>
-   <li class='has-sub'><a href='#'><span>PRODUCER</span></a>
-      <ul>
-      	 <li class='last'><a href='manageVideoProduction.php' target='_blank'><span>自動動画制作</span></a></li>
-      </ul>
-   </li>
-   <li class='has-sub last'><a href='#'><span>LOGOUT</span></a>
-      <ul>
-         <li><a href='logout.php'><span>ログアウト</span></a></li>
-         <li class='last'><a href='changelogininfo.php'><span>ログイン情報変更</span></a></li>
-      </ul>
-   </li>
+  <li ng-repeat="mi in menus | filter:lessThanE('level',<?=$userLevel?>)" ng-class="getClass(mi,menus)"><a href='{{ mi.link }}'><span>{{ mi.title }}</span></a>
+    <ul>
+    	<li ng-repeat="s in mi.subs | filter:lessThanE('level',<?=$userLevel?>)" ng-class="getClass(s,mi.subs)"><a href='{{ s.link }}'><span>{{ s.title }}</span></a>
+    </ul>
+  </li>
 </ul>
 </div>
 
@@ -122,27 +153,24 @@ if ($daysremaining<20)
 現在、IE(インターネットエクスプローラー)11未満のブラウザなどはサポートされておりません。Firefox、Chrome、または最新のIEをダウンロードしてお使いください。
 </div>
 <?php } else { ?>
-<div id="popup">
-<div class="container">
+<div id="popup1">
 <form class="login" method="POST">
 <table class="loginbox">
-<tr><td style="width:120px; text-align:right;">ユーザーID：</td><td style="text-align:left;">
+<tr><td class="loginLabel">ユーザーID：</td><td style="text-align:left;">
 <input type="text" name="key" size=16 value="" /></td></tr>
-<tr style="text-align:right;"><td>パスワード：</td><td style="text-align:left;">
+<tr class="loginLabel"><td>パスワード：</td><td style="text-align:left;">
 <input type="password" name="pass" size=16 value="" /></td></tr>
 <tr><td colspan=2 style="text-align:center; font-size:10px"></td></tr>
 <tr><td colspan=2 style="padding-top:25px; text-align: center;"><input type="submit" class="loginbuttonclass" value="ログイン"><input type="hidden" name="ip" value="" /></td></tr>
 </table>
 </form>
-</div><!--end container-->
 </div>
 <?php } ?>
-<div class="center"><img class="logo" src=""></div>
+<div class="center"><img class="logo" src="img/logo.png"></div>
 
 <p class="footer_img"><br />Copyright © 2015 J Hirota. All rights reserved.</p>
 
 <script>
-
 $(function() {
 	if (!$.support.leadingWhitespace) {
 		//IE7 and 8 stuff
@@ -152,14 +180,14 @@ $(function() {
 	}
 	
 	
-	$('#popup').bPopup({
+	$('#popup1').bPopup({
 		opacity: 0.6,
 		positionStyle: 'fixed' //'fixed' or 'absolute'
 	});
 
 	$('.logo').click(function() {
 		//$('#content').attr('src', url);
-		$('#popup').bPopup({
+		$('#popup1').bPopup({
 			opacity: 0.6,
 			positionStyle: 'fixed' //'fixed' or 'absolute'
 		});

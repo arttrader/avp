@@ -1,23 +1,22 @@
 <?php
 require_once 'AuthController.php';
-
 require_once 'videoDataClass.php';
+require_once 'php_image_magician.php';
 
-require_once('php_image_magician.php');
-
+$userLevel = 0;
 
 // authenticate the use of this system
 // use this as a set on every page that requires authorization
 //start session
-
 session_start();
-if (isset($_SESSION['authController'])) {
-	$authController = unserialize($_SESSION['authController']);
+if (isset($_SESSION[$sessionName])) {
+	$authController = unserialize($_SESSION[$sessionName]);
 	if (is_object($authController) && $authController->checkLogin()) {
 		$name = $authController->name;
 		$userID = $authController->userId;
+		$userGroup = $authController->userGroup;
 		$userLevel = $authController->userLevel;
-		if ($userLevel<7)
+		if ($userLevel<2)
 			header("Location:$rootUrl");
 	} else
 		header("Location:$rootUrl");
@@ -38,127 +37,85 @@ $file = '';
 $category = 0;
 $genre = 0;
 $keywords = '';
-$targetDir = imageDataClass::getFolder();
-$target_file = 'img/noimage.png';
+$share = false;
+$imageObj = new imageDataClass(0,0,'','',$userGroup);
+$imageObj->fileName = '';
+$imageData = new mDataClass();
+$imageChanged = false;
 
 $items_per_page = 20;
 
 if ($_POST) {
 	$send = $_POST['send'];
+	$title = $_POST['title'];
+	$category = $_POST['category'];
+	$genre = $_POST['genre'];
+	$share = isset($_POST['share'])?true:false;
+	$imageChanged = $_POST['imageChanged'];
+	$imageData->decode($_POST['imageHtml']);
 	if ($send==="変更") {
 		$mi = $_POST['mi'];
-//		$imageType = $_POST['imageType'];
-		$title = $_POST['title'];
-		$file = $_POST['file'];
-		$category = $_POST['category'];
-		$genre = $_POST['genre'];
-		$keywords = $_POST['keywords'];
-		$sql = sprintf("call update_image(%u,'%s','%s',%u,%u,'%s')",
-						$mi,$title,$file,$category,$genre,$keywords);
-		$result = getDB($sql);
-		echo "<br /><br />画像データを変更しました";		
+		$imageObj->loadData($mi);
+		$imageObj->title = $title;
+		$imageObj->category = $category;
+		$imageObj->genre =$genre;
+		$imageObj->keywords = $keywords;
+		$imageObj->saveData();
+		echo "<br><br>画像データを変更しました";
 	} else if ($send==="追加") {
-		if (!empty($_FILES['file']) && isset($_POST['title'])) {
-			$filename = basename($_FILES['file']['name']);
-			$target_file = $targetDir.$filename;
-			$uploadOk = true;
-			$fileType = pathinfo($target_file, PATHINFO_EXTENSION);
-			// Check file size
-			if ($_FILES["file"]["size"] > 4000000) {
-				echo "ファイルが大きすぎです！";
-				$uploadOk = false;
+//		echo "image data count = ".$imageData->count()."<br>";
+		// need to check that category is also a shared one
+		if ($share)
+			if (isSharedCategory($category)) $imageObj->setGroupID(0);
+			else echo "共有カテゴリではないので、共有設定は無効です！<br>";
+		if ($imageData->count() && $title) {
+			$n = $imageData->count();
+			writeLog("updating $n images [".$title."], group id=".$userGroup);
+			$imageData->rewind();
+			for ($i=1; $i<=$n; $i++) {
+				$imageData->current()->title = $title." ".$i;
+				$imageData->current()->reuse = 1;
+				$imageData->current()->category = $category;
+				$imageData->current()->saveData();
+				$imageData->next();
 			}
-			// Check if $uploadOk is set to 0 by an error
-			if (!$uploadOk) {
-				echo "ファイルをアップロードできません！";
-			} else {
-				// if everything is ok, try to upload file
-				if (move_uploaded_file($_FILES["file"]["tmp_name"], $target_file)) {
-					$title = $_POST['title'];
-					$file = $filename;
-/*					$ext = pathinfo($file, PATHINFO_EXTENSION);
-					$fname = pathinfo($file, PATHINFO_FILENAME);
-					$magicianObj = new imageLib($target_file);
-					$magicianObj -> resizeImage(1920, 1080, 4); // 1080p default size 
-					$magicianObj -> saveImage($targetDir.$fname.'.png');
-					$magicianObj = null;
-					unlink($target_file);
-					$file = $fname.'.png';
-					$target_file = $targetDir.$file; */
-					$category = isset($_POST['category']);
-					$genre = $_POST['genre'];
-					$keywords = $_POST['keywords'];
-					$sql = sprintf("call add_image('%s','%s',%u,%u,'%s',%u)",
-									$title,$file,$category,$genre,$keywords,$userID);
-					$result = getDB($sql);
-					echo "<br /><br />画像を追加しました";
-				}
-			}
-		} else {
-			echo "<div class='font_red'>ファイルが選択されてません</div><br />";
-		}
+		} else if (!empty($_FILES['file']) && $title) {
+			$imageObj->upload($title,$_FILES['file'],$category,$genre,$keywords,1);
+			$mi = $imageObj->imageId;
+		} else 
+			echo "<div class='font_red'>ファイル、タイトルが選択されてません</div><br>";
 	} else if ($send==="削除") {
 		if (isset($_POST['delete'])) {
 			if (is_array($_POST['delete'])) {
 				foreach($_POST['delete'] as $i) {
-					$resId = $_POST['resId'.$i];
-					deleteImage($resId);
+					$imageObj->imageId = $_POST['resId'.$i];
+					$imageObj->delete();
 				}
 			} else {
 				$i = $_POST['delete'];
-				$resId = $_POST['resId'.$i];
-				deleteImage($resId);
+				$imageObj->imageId = $_POST['resId'.$i];
+				$imageObj->delete();
 			}
 		}
-	} else if (!strcmp($send,"戻る")) {
-		header("Location:index.html");
-		exit();
 	}
 } else {
-	if (isset($_GET['p']))
-		$pageNo = $_GET['p'];
-	else
-		$pageNo = 1;
-	
 	if (isset($_GET['mi'])) {
 		$mi = $_GET['mi'];
-		$sql = "select * from image where image_id=".$mi;
-		$result = getDB($sql);
-		$rec = $result[0];
-		$title = $rec['title'];
-		$file = $rec['filename'];
-		$target_file = $targetDir.$file;
-		$category = $rec['category'];
-		$genre = $rec['genre'];
-		$keywords = $rec['keywords'];
+		$imageObj->loadData($mi);
+		$share = ($imageObj->getGroupID()==0)?true:false;
 	}
-}
-
-function deleteImage($resId) {
-	global $targetDir;
-	echo "deleting ".$resId."<br /><br />\n";
-	$sql = "select filename from image where image_id=".$resId;
-	$result = getDB($sql);
-	if (count($result)) {
-		$rec = $result[0];
-		$filename = $rec['filename'];
-		$target_file = $targetDir.$filename;
-		unlink($target_file);
-		$sql = sprintf("call delete_image(%s)", $resId);
-		$result = getDB($sql);
-	} else echo "エラー: 削除できません！";
 }
 
 function getNumList() {
-	global $userID;
-	$sql = "select image_id from image where isnull(user_id) or user_id=".$userID;
+	global $userGroup;
+	$sql = "select count(*) n from image where reuse=1 and (group_id=0 or group_id=".$userGroup.")";
 	$result = getDB($sql);
-	return count($result);
+	return $result[0]['n'];
 }
 
 function getImageList($offset, $numItems) {
-	global $userID;
-    $sql = "select * from image where isnull(user_id) or user_id=$userID limit ".$offset.",".$numItems;
+	global $userGroup;
+    $sql = "select image_id,title,filename,category,genre,i.group_id,c.name cname,g.name gname from image i left join category c on i.category=c.category_id left join genre g on i.genre=g.genre_id where (i.group_id=0 or i.group_id=$userGroup) and reuse=1 order by image_id desc limit ".$offset.",".$numItems;
 	$result = getDB($sql);
 	return $result;
 }
@@ -167,40 +124,52 @@ function getImageList($offset, $numItems) {
 <head>
 	<meta Content-Type: text/html; charset=UTF-8 />
 	<link rel="stylesheet" href="style.css" type="text/css" />
+	<link rel="stylesheet" href="css/pb-style.css">
 	<link rel="stylesheet" href="http://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css">
-	<link rel="stylesheet" href="css/jquery-ui-timepicker-addon.css" />
 	<title>画像管理</title>
-	<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
-	<script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
+	<script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
+	<script src="//code.angularjs.org/1.4.5/angular.min.js"></script>
+	<script type='text/javascript' src='../js/menu_app.js'></script>
+	<script type='text/javascript' src="../js/jquery-ui.js"></script>
+	<script type='text/javascript' src='../js/jQuery.download.js'></script>
+<style>
+#filedrop {
+	padding: 1em 0;
+	margin: 1em 0;
+	color: #555;
+	border: 2px dashed #555;
+	border-radius: 7px;
+	cursor: default;
+}
+
+#filedrop.hover {
+	color: #aaa;
+	border: 2px;
+	border-color: #f00;
+	border-style: solid;
+	box-shadow: inset 0 3px 4px #888;
+	background-color:rgba(255,255,255,0.3);
+}
+#filedrop p { margin: 10px; font-size: 14px; }
+progress:after { content: '%'; }
+.fail { background: #c00; padding: 2px; color: #fff; }
+.hidden { display: none !important;}
+</style>
 </head>
 <body>
-<div id='cssmenu'>
+<div id='cssmenu' ng-app="menuApp" ng-controller="menuController">
 <ul>
-   <li class='active'><a href='index.php'><span>Home</span></a></li>
-   <li class='has-sub'><a href='#'><span>MATERIALS</span></a>
-      <ul>
-         <li><a href='manageMusic.php' target='_blank'><span>音楽素材</span></a></li>
-         <li><a href='manageImage.php' target='_blank'><span>画像素材</span></a></li>
-         <li><a href='manageVideo.php' target='_blank'><span>動画素材</span></a></li>
-         <li class='last'><a href='manageArticle.php' target='_blank'><span>記事素材</span></a></li>
-      </ul>
-   </li>
-   <li class='has-sub'><a href='#'><span>PRODUCER</span></a>
-      <ul>
-      	 <li class='last'><a href='manageVideoProduction.php' target='_blank'><span>自動動画制作</span></a></li>
-      </ul>
-   </li>
-   <li class='has-sub last'><a href='#'><span>LOGOUT</span></a>
-      <ul>
-         <li><a href='logout.php'><span>ログアウト</span></a></li>
-         <li class='last'><a href='changelogininfo.php'><span>ログイン情報変更</span></a></li>
-      </ul>
-   </li>
+  <li ng-repeat="mi in menus | filter:lessThanE('level',<?=$userLevel?>)" ng-class="getClass(mi,menus)"><a href='{{ mi.link }}'><span>{{ mi.title }}</span></a>
+    <ul>
+    	<li ng-repeat="s in mi.subs | filter:lessThanE('level',<?=$userLevel?>)" ng-class="getClass(s,mi.subs)"><a href='{{ s.link }}' target="{{ getTarget(s) }}"><span>{{ s.title }}</span></a>
+    </ul>
+  </li>
 </ul>
 </div>
 
 <div class="user_name">こんにちは、<?=$name?>さん</div>
 <div class="subtitle">画像管理</div>
+<span id="message"><?=$message?></span>
 
 <div class="container_main">
 <form class="select" method="POST" enctype="multipart/form-data">
@@ -208,55 +177,81 @@ function getImageList($offset, $numItems) {
 
 <table class="">
 <tr style="text-align:left;">
-<th>タイトル</th><th>ファイル</th><th>カテゴリー</th><th style="text-align:center;">ジャンル</th></tr>
+<th>ファイル</th><th>タイトル</th><th>カテゴリー</th><th style="text-align:center;">ジャンル</th></tr>
 <tr>
-<td><input id="title" name="title" type="text" size="40" value="<?=$title?>" /></td>
-<td style="width:50px;"><input type="file" accept=".jpg,.png,image/jpeg,image/png" name="file" value="<?=$file?>"  onchange="readURL(this);"></td>
+<td style="width:50px;">
+<?php if ($imageObj->fileName)
+	echo "<span style='font-size:12px;'>".$imageObj->fileName."</span>";
+else { ?>
+<input type="file" name="file" accept=".jpg,.png,image/jpeg,image/png" value="<?=$file?>"  onchange="readURL(this);">
+<?php } ?>
+</td>
+<td><input id="title" name="title" type="text" size="40" value="<?=$imageObj->title?>" /></td>
 <td style="text-align:center;">
 <select name="category">
-<?php
-	$sql = "select * from category";
-	$perms = getDB($sql);
-	$i = 1;
-	foreach ($perms as $line) {
-		$id = $line['category_id'];
-		$pname = $id.' '.$line['name'];
-		echo "<option value='".$id."'".(($category===$id)?" selected":"")
-			.">".$pname."</option>\n";
-	}
-?>
+<?php getCategoryList($imageObj->category); ?>
 </select>
 </td>
 <td style="text-align:center;">
 <select name="genre">
-<?php
-	$sql = "select * from image_genre";
-	$perms = getDB($sql);
-	$i = 1;
-	foreach ($perms as $line) {
-		$id = $line['image_genre_id'];
-		$pname = $id.' '.$line['name'];
-		echo "<option value='".$id."'".(($genre===$id)?" selected":"")
-			.">".$pname."</option>\n";
-	}
-?>
+<?php getGenreList($imageObj->genre); ?>
 </select>
 </td></tr>
-<tr><td><img style="width:200px;" id="thum" src="<?=$target_file?>" alt="your image"></td></tr>
+<tr><td></td><td>
+</td></tr>
+<tr><td>
+<?php if ($imageObj->fileName) { ?>
+<img style="width:200px;" id="thum" src="<?=$imageObj->getFilePath()?>" alt="your image">
+<?php } else { ?>
+<img style="width:200px;" id="thum" src="img/noimage.png" alt="your image">
+<?php } ?>
+</td>
+<td>
+<?php if (!$mi && $userLevel>10) {
+echo '<input type="checkbox" id="share" name="share"><label for="share"><span></span></label>共有する<br><p style="font-size:12px;">
+他のユーザーと共有することができます。ただし、一度共有したものは変更ができません！</p>
+<p style="font-size:10px;">選択されてるカテゴリが共有カテゴリでない場合は無効です</p>';
+} ?>
+</td>
+<!--</tr>
 <tr><td>キーワード</td></tr>
 <tr>
-<td colspan=3><textarea name="keywords"><?=$keywords?></textarea>
-</td>
+<td colspan=3><textarea name="keywords"><?=$imageObj->keywords?></textarea>
+</td>-->
 <td>
 <?php
 if ($mi) {
-	echo '<input class="" type="submit" name="send" value="変更">';
+	if (!$share || $userLevel>10)
+		echo '<input class="button" type="submit" name="send" value="変更">';
+	else
+		echo '共有されてる画像は変更できません！';
 } else {
-	echo '<input class="" type="submit" name="send" value="追加">';
+	echo '<input class="button" type="submit" name="send" value="追加">';
 }
 ?>
 </td></tr>
 <tr><td>&nbsp;</td></tr>
+
+<?php if (!$mi) { ?>
+<tr><td colspan=4>
+<table class="tubecell"><tr><td style="padding:4px;">
+<div id="imageDisplay"><span style='color:gray;margin-left:10px;'>画像が選択されてません</span></div>
+</td></tr></table>
+
+<!-- drag & drop用 -->
+<div id="filedrop" style="text-align:center;margin:0 16px 0 4px;">
+<p id="filereader"></p>
+<p id="formdata"><input type="file" multiple="multiple" accept=".jpg,.png,image/jpeg,image/png" name="imageFile[]" id="imageFile"> &nbsp;
+<input type="submit" class="hidden" id="upload" name="send" value="upload">
+選択した画像をアップロード</p>
+<p id="progress"></p>
+ここに画像ファイルをドラッグしてください &nbsp;
+<progress id="uploadprogress" min="0" max="100" value="0">0</progress>
+</div>
+<input type="hidden" id="imageData" name="imageHtml" value="<?=$imageData->encode()?>">
+<input type="hidden" id="imageChanged" name="imageChanged" value="<?=$imageChanged?>">
+</td></tr>
+<?php } ?>
 <tr>
 <td style="text-align:left;"></td>
 <td colspan=3 style="border:0;text-align:right;">
@@ -269,13 +264,13 @@ if ($mi) {
 <br>
 
 <table class="kwtool" style="width:98%;">
-<tr><th>タイトル</th><th>ファイル</th><th>カテゴリー</th><th>ジャンル</th><th>キーワード</th><th>編集</th><th>削除</th></tr>
+<tr><th>タイトル</th><th>ファイル名</th><th>カテゴリー</th><th>ジャンル</th><th>編集</th><th><input type="checkbox" id="selectAll"><label for='selectAll'><span></span></label>削除</th></tr>
 <?php
 $rowCount = getNumList();
 $pageCount = (int)ceil($rowCount/$items_per_page);
-if (!$pageNo) {
+if (!$pageNo)
 	$pageNo = $pageCount;
-}
+
 // get reservation table data
 $offset = ($pageNo - 1) * $items_per_page;
 $imageList = getImageList($offset, $items_per_page);
@@ -284,28 +279,30 @@ if (count($imageList)) {
 	foreach ($imageList as $rec) {
 		$id = $rec['image_id'];
 		$tt = $rec['title'];
-		$fi = $rec['filename'];
-		$ca = $rec['category'];
-		$ge = $rec['genre'];
-		$ke = $rec['keywords'];
+		$fi = mb_strimwidth($rec['filename'],0,40,'...','UTF-8');
+		$ca = $rec['cname'];
+		$ge = $rec['gname'];
+		$sh = $rec['group_id'];
 
 		echo "<tr>";
 		echo "<td>".$tt."</td>";
 		echo "<td>".$fi."</td>";
 		echo "<td style='text-align:center;'>".$ca."</td>";
 		echo "<td>".$ge."</td>";
-		echo "<td>".$ke."</td>";
-		echo '<td><span class="button small"><a href="'.$selfName.'?mi='.$id.'&p='.$pageNo.'"><img src="img/icon_edit.png"></a></span>';
+		echo '<td><span class="small"><a href="'.$selfName.'?mi='.$id.'&p='.$pageNo.'"><img src="img/icon_edit.png"></a></span>';
 		echo "<input type='hidden' name='resId".$i."' value='".$id."' /></td>";
-		echo "<td><input type='checkbox' name='delete[]' value='".$i."' /></td>";
+		if ($sh)
+			echo "<td><input type='checkbox'  id='d$i' class='delbtn' name='delete[]' value='".$i."' /><label for='d$i'><span></span></label></td>";
+		else
+			echo "<td><input type='checkbox'  id='d$i' class='delbtn' name='delete[]' disabled/></td>";
 		echo "</tr>\n";
-		
+
 		$i++;
 	}
 }
-//echo $genre.'<br><br>';
 ?>
 </table>
+</form>
 
 <table><tr><td style="font-size:11px">
 <?php
@@ -318,15 +315,79 @@ for ($i = 1; $i <= $pageCount; $i++) {
 }
 ?>
 </td></tr></table>
-</form>
 
 <?php
 session_write_close();
 ?>
 </div><!--end container_main-->
-<p class="footer_img"><br />Copyright © 2015 J Hirota. All rights Reserved.</p>
+<p class="footer_img"><br />Copyright © 2015-2016 J Hirota. All rights Reserved.</p>
 
 <script>
+$(function() {
+	bindButtonClick();
+
+	$('#selectAll').click(function() {
+		var setvar = $(this).prop('checked');
+		selectAllDelItems(setvar);
+	});
+});
+
+function bindButtonClick() {
+	$('.imagecell').draggable({
+		cursor: "move",
+		opacity: 0.4,
+		revert: "invalid",
+		revertDuration: 10
+	});
+
+	$('.imagecell').droppable({
+		drop: function(event, ui) {
+			var fid = ui.draggable.attr("id");
+			var fi = fid.substring(2);
+			var id = $(this).attr("id");
+			var i = id.substring(2);
+			updateImages('dp'+i, fi);
+		}
+	});
+
+	$('.delImageBtn').click(function() {
+		var id = $(this).attr("id");
+		var i = id.substring(2);
+		updateImages('dl'+i);
+	});
+}
+
+function updateImages(cmd, fid) {
+	if (cmd!="") $('#imageChanged').val(true);
+	if (typeof fid!=='undefined')
+		var data = {send:cmd, fi:fid, mItemData:$('#imageData').val()};
+	else
+		var data = {send:cmd, mItemData:$('#imageData').val()};
+	$.ajax({
+		type:'POST',
+		url:'updateDisplayImages.php',
+		data:data,
+		dataType:'json',
+		success: function(result) {
+			$('#imageData').val(result['mitemdata']);
+			if (result['exhtml'])
+				$('#imageDisplay').html(result['exhtml']);
+			else
+				$('#imageDisplay').html("<span style='color:gray;margin-left:10px;'>画像が選択されてません</span>");
+			bindButtonClick();
+		},
+		error: function(result) {
+			alert('サーバーからの読み込み失敗: '+result['exhtml']);
+		}
+	});
+}
+
+function selectAllDelItems(setvar) {
+	$('.delbtn').each(function() {
+		$(this).prop('checked', setvar);
+	});
+}
+
 function readURL(input) {
 	if (input.files && input.files[0]) {
 		var reader = new FileReader();
@@ -342,6 +403,96 @@ function readURL(input) {
 		$('#title').val(input.files[0].name.replace(/\.[^/.]+$/, ""));
 	}
 }
+
+
+var holder = document.getElementById('filedrop'),
+    tests = {
+      filereader: typeof FileReader != 'undefined',
+      dnd: 'draggable' in document.createElement('span'),
+      formdata: !!window.FormData,
+      progress: "upload" in new XMLHttpRequest
+    },
+    support = {
+      filereader: document.getElementById('filereader'),
+      formdata: document.getElementById('formdata'),
+      progress: document.getElementById('progress')
+    },
+    acceptedTypes = {
+      'image/png': true,
+      'image/jpeg': true,
+      'image/gif': false
+    },
+    progress = document.getElementById('uploadprogress'),
+    fileupload = document.getElementById('upload');
+
+"filereader formdata progress".split(' ').forEach(function (api) {
+  if (tests[api] === false) {
+    support[api].className = 'fail';
+  } else {
+    support[api].className = 'hidden';
+  }
+});
+
+function readfiles(files) {
+    var fd = tests.formdata ? new FormData() : null;
+    for (var i = 0; i < files.length; i++) {
+      if (tests.formdata) fd.append('file[]', files[i]);
+    }
+	fd.append("send","upload");
+	fd.append("mItemData",$('#imageData').val());
+	fd.append("ug",<?=$userGroup?>);
+	fd.append("ct",$('#category').val());
+
+    // now post a new XHR request
+    if (tests.formdata) {
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', 'updateDisplayImages.php');
+		xhr.onload = function() {
+		  progress.value = progress.innerHTML = 100;
+		};
+	}
+
+	if (tests.progress) {
+        xhr.upload.onprogress = function (event) {
+          if (event.lengthComputable) {
+            var complete = (event.loaded / event.total * 100 | 0);
+            progress.value = progress.innerHTML = complete;
+          }
+        }
+	}
+
+	xhr.onreadystatechange = function(event) {
+		var xhr = event.target;
+		if (xhr.readyState === 4 && xhr.status === 200) {
+//			alert(xhr.responseText);
+			var json = JSON.parse(xhr.responseText);
+			$('#imageData').val(json['mitemdata']);
+			$('#imageDisplay').html(json['exhtml']);
+			$('#imageChanged').val(true);
+			bindButtonClick();
+		} else if (xhr.status!==0 && xhr.status!==200) {
+			console.log('ERROR: '+xhr.status);
+			alert('ERROR: '+xhr.readyState+'  '+xhr.status);
+		}
+	}
+	xhr.send(fd);
+}
+
+if (tests.dnd) {
+  holder.ondragover = function () { this.className = 'hover'; return false; };
+  holder.ondragend = function () { this.className = ''; return false; };
+  holder.ondrop = function (e) {
+    this.className = '';
+    e.preventDefault();
+    readfiles(e.dataTransfer.files);
+  }
+} else {
+  fileupload.className = 'hidden';
+  fileupload.querySelector('input').onchange = function () {
+    readfiles(this.files);
+  };
+}
+
 </script>
 
 </body>

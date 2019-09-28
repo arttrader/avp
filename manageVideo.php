@@ -4,16 +4,15 @@ require_once 'videoDataClass.php';
 
 // authenticate the use of this system
 // use this as a set on every page that requires authorization
-//start session
-
 session_start();
-if (isset($_SESSION['authController'])) {
-	$authController = unserialize($_SESSION['authController']);
+if (isset($_SESSION[$sessionName])) {
+	$authController = unserialize($_SESSION[$sessionName]);
 	if (is_object($authController) && $authController->checkLogin()) {
 		$name = $authController->name;
 		$userID = $authController->userId;
+		$userGroup = $authController->userGroup;
 		$userLevel = $authController->userLevel;
-		if ($userLevel<7)
+		if ($userLevel<2)
 			header("Location:$rootUrl");
 	} else
 		header("Location:$rootUrl");
@@ -30,133 +29,75 @@ else
 	$pageNo = 1;
 
 $mi = null;
-$title = '';
-$file = '';
 $category = 0;
-$genre = 0;
 $keywords = '';
-$targetDir = videoDataClass::getFolder();
-$target_file = '';
+$share = false;
+$videoObj = new videoDataClass(0,0,'','',0,$userGroup);
 
 $items_per_page = 20;
 
 if ($_POST) {
 	$send = $_POST['send'];
+	$title = $_POST['title'];
+	$category = $_POST['category'];
+//	$keywords = $_POST['keywords'];
+	$type = $_POST['type'];
+	$share = isset($_POST['share'])?true:false;
 	if ($send==="変更") {
 		$mi = $_POST['mi'];
-//		$imageType = $_POST['imageType'];
-		$title = $_POST['title'];
-		$file = $_POST['file'];
-		$category = isset($_POST['category']);
-//		$genre = $_POST['genre'];
-		$keywords = $_POST['keywords'];
-		$type = $_POST['type'];
-		$sql = sprintf("call update_video(%u,'%s',%u,'%s',%u)",
-						$mi,$title,$category,$keywords,$type);
-		$result = getDB($sql);
-		echo "<br><br>動画データを変更しました";		
+		$videoObj->loadData($mi);
+		$videoObj->title = $title;
+		$videoObj->category = $category;
+		$videoObj->keywords = $keywords;
+		$videoObj->type = $type;
+		$videoObj->saveData();
+		$message = "動画データを変更しました";		
 	} else if ($send==="追加") {
-		if (!empty($_FILES['file']) && isset($_POST['title'])) {
-			$filename = basename($_FILES['file']['name']);
-			$target_file = $targetDir.$filename;
-			$uploadOk = true;
-			$fileType = pathinfo($target_file, PATHINFO_EXTENSION);
-			// Check file size
-			if ($_FILES["file"]["size"] > 20000000) {
-				echo "ファイルが大きすぎです！";
-				$uploadOk = false;
-			}
-			// Check if $uploadOk is set to 0 by an error
-			if (!$uploadOk) {
-				echo "ファイルをアップロードできません！";
-			} else {
-				// if everything is ok, try to upload file
-				if (move_uploaded_file($_FILES["file"]["tmp_name"], $target_file)) {
-					$title = $_POST['title'];
-					$file = $filename;
-/*					$ext = pathinfo($file, PATHINFO_EXTENSION);
-					$fname = pathinfo($file, PATHINFO_FILENAME);
-					$magicianObj = new imageLib($target_file);
-					$magicianObj -> resizeImage(1920, 1080, 4); // 1080p default size 
-					$magicianObj -> saveImage($targetDir.$fname.'.png');
-					$magicianObj = null;
-					unlink($target_file);
-					$file = $fname.'.png';
-					$target_file = $targetDir.$file; */
-					$category = isset($_POST['category']);
-					$type = $_POST['type'];
-					$keywords = $_POST['keywords'];
-					$sql = sprintf("call add_video('%s','%s',%u,'%s',%u,%u)",
-									$title,$file,$category,$keywords,$type,$userID);
-					$result = getDB($sql);
-					echo "<br /><br />動画を追加しました";
-				}
-			}
+		if (!empty($_FILES['file']) && $title) {
+			if ($share) 
+				if (isSharedCategory($category)) $videoObj->setGroupID(0);
+				else $message = "共有カテゴリではないので、共有設定は無効です！";
+			//echo "Uploading file...<br>";
+			$fname = $_POST['fname'];
+			$uploadOK =
+				$videoObj->upload($title,$_FILES['file'],$category,$keywords,$type,$fname);
 		} else
-			echo "<div class='font_red'>ファイルが選択されてません</div><br />";
+			$message = "タイトル、ファイルが選択されてません";
 	} else if ($send==="削除") {
 		if (isset($_POST['delete'])) {
 			if (is_array($_POST['delete'])) {
 				foreach($_POST['delete'] as $i) {
-					$resId = $_POST['resId'.$i];
-					deleteVideo($resId);
+					$vId = $_POST['resId'.$i];
+					$videoObj->loadData($vId);
+					$videoObj->delete();
 				}
 			} else {
 				$i = $_POST['delete'];
-				$resId = $_POST['resId'.$i];
-				deleteVideo($resId);
+				$vId = $_POST['resId'.$i];
+				$videoObj->loadData($vId);
+				$videoObj->delete();
 			}
 		}
-	} else if (!strcmp($send,"戻る")) {
-		header("Location:index.html");
-		exit();
 	}
 } else {
-	if (isset($_GET['p']))
-		$pageNo = $_GET['p'];
-	else
-		$pageNo = 1;
-	
 	if (isset($_GET['mi'])) {
 		$mi = $_GET['mi'];
-		$sql = "select * from video where video_id=".$mi;
-		$result = getDB($sql);
-		$rec = $result[0];
-		$title = $rec['title'];
-		$file = $rec['filename'];
-		$target_file = $targetDir.$file;
-		$category = $rec['category'];
-		//$genre = $rec['genre'];
-		$keywords = $rec['keywords'];
-		$type = $rec['video_type'];
+		$videoObj->loadData($mi);
+		$share = ($videoObj->getGroupID()==0)?true:false;
 	}
 }
 
-function deleteVideo($resId) {
-	global $targetDir;
-	echo "deleting ".$resId."<br /><br />\n";
-	$sql = "select filename from video where video_id=".$resId;
-	$result = getDB($sql);
-	if (count($result)) {
-		$rec = $result[0];
-		$filename = $rec['filename'];
-		$target_file = $targetDir.$filename;
-		unlink($target_file);
-		$sql = sprintf("call delete_video(%s)", $resId);
-		$result = getDB($sql);
-	} else echo "エラー: 削除できません！";
-}
 
 function getNumList() {
-	global $userID;
-	$sql = "select video_id from video where isnull(user_id) or user_id=".$userID;
+	global $userGroup;
+	$sql = "select count(*) n from video where group_id=0 or group_id=".$userGroup;
 	$result = getDB($sql);
-	return count($result);
+	return $result[0]['n'];
 }
 
-function getImageList($offset, $numItems) {
-	global $userID;
-    $sql = "select * from video where isnull(user_id) or user_id=$userID limit ".$offset.",".$numItems;
+function getVideoList($offset, $numItems) {
+	global $userGroup;
+    $sql = "select video_id,title,filename,v.category,video_type,v.group_id,c.name cname from video v left join category c on v.category=c.category_id where v.group_id=0 or v.group_id=$userGroup order by video_id desc limit ".$offset.",".$numItems;
 	$result = getDB($sql);
 	return $result;
 }
@@ -165,42 +106,27 @@ function getImageList($offset, $numItems) {
 <head>
 	<meta Content-Type: text/html; charset=UTF-8 />
 	<link rel="stylesheet" href="style.css" type="text/css" />
+	<link rel="stylesheet" href="css/pb-style.css">
 	<link rel="stylesheet" href="http://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css">
-	<link rel="stylesheet" href="css/jquery-ui-timepicker-addon.css" />
-	<link href="videojs.thumbnails.css" rel="stylesheet">
-	<title>CM動画管理</title>
-	<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
-	<script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
-	<script src='videojs.thumbnails.js'></script>
+	<title>動画管理</title>
+	<script src='//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js'></script>
+	<script src="//code.angularjs.org/1.4.5/angular.min.js"></script>
+	<script type='text/javascript' src='../js/menu_app.js'></script>
 </head>
 <body>
-<div id='cssmenu'>
+<div id='cssmenu' ng-app="menuApp" ng-controller="menuController">
 <ul>
-   <li class='active'><a href='index.php'><span>Home</span></a></li>
-   <li class='has-sub'><a href='#'><span>MATERIALS</span></a>
-      <ul>
-         <li><a href='manageMusic.php' target='_blank'><span>音楽素材</span></a></li>
-         <li><a href='manageImage.php' target='_blank'><span>画像素材</span></a></li>
-         <li><a href='manageVideo.php' target='_blank'><span>動画素材</span></a></li>
-         <li class='last'><a href='manageArticle.php' target='_blank'><span>記事素材</span></a></li>
-      </ul>
-   </li>
-   <li class='has-sub'><a href='#'><span>PRODUCER</span></a>
-      <ul>
-      	 <li class='last'><a href='manageVideoProduction.php' target='_blank'><span>自動動画制作</span></a></li>
-      </ul>
-   </li>
-   <li class='has-sub last'><a href='#'><span>LOGOUT</span></a>
-      <ul>
-         <li><a href='logout.php'><span>ログアウト</span></a></li>
-         <li class='last'><a href='changelogininfo.php'><span>ログイン情報変更</span></a></li>
-      </ul>
-   </li>
+  <li ng-repeat="mi in menus | filter:lessThanE('level',<?=$userLevel?>)" ng-class="getClass(mi,menus)"><a href='{{ mi.link }}'><span>{{ mi.title }}</span></a>
+    <ul>
+    	<li ng-repeat="s in mi.subs | filter:lessThanE('level',<?=$userLevel?>)" ng-class="getClass(s,mi.subs)"><a href='{{ s.link }}' target="{{ getTarget(s) }}"><span>{{ s.title }}</span></a>
+    </ul>
+  </li>
 </ul>
 </div>
 
 <div class="user_name">こんにちは、<?=$name?>さん</div>
-<div class="subtitle">CM動画管理</div>
+<div class="subtitle">動画管理</div>
+<span id="message"><?=$message?></span>
 
 <div class="container_main">
 <form class="select" method="POST" enctype="multipart/form-data">
@@ -208,48 +134,70 @@ function getImageList($offset, $numItems) {
 
 <table class="">
 <tr style="text-align:left;">
-<th>タイトル</th><th>ファイル</th><th>カテゴリー</th><th>タイプ</th></tr>
-<tr>
-<td><input id="title" name="title" type="text" size="40" value="<?=$title?>"></td>
-<td style="width:50px;"><input type="file" accept=".mp4,video/mp4" name="file" value="<?=$file?>"  onchange="readURL(this);"></td>
+<th>ファイル</th><th>ファイル名</th><th>カテゴリー</th><th>タイプ</th></tr>
+<tr style="vertical-align:text-top;">
+<td>
+<?php if (!$videoObj->fileName) { ?>
+<input type="file" name="file" accept=".mp4,video/mp4" onchange="readURL(this);">
+<div style="font-size:10px;">
+動画は<span style="font-weight: bold;color:blue;">H.264 720p(1280x720) 30fpsのmp4</span>ファイルが使用できます。<br>
+それ以外の動画ファイルは現在サポートされてませんのでご注意下さい。<br>
+ファイル名は半角ローマ数字だけのものを御使用ください。<br>
+出来ればファイルサイズは6MB以下にしてください。<br>
+20MB以上のファイルはアップロードできません。</div>
+<?php } ?>
+</td>
+<td style="width:180px;">
+<?php if ($videoObj->fileName)
+	echo "<span style='font-size:12px;'>".$videoObj->fileName."</span>";
+else { ?>
+	<input type="text" name="fname" size=30><br>
+	<font style="font-size:10px;">半角ローマ字と数字だけを推奨します！</font>
+<?php } ?>
+</td>
 <td style="text-align:center;">
 <select name="category">
-<?php
-	$sql = "select * from category";
-	$perms = getDB($sql);
-	$i = 1;
-	foreach ($perms as $line) {
-		$id = $line['category_id'];
-		$pname = $id.' '.$line['name'];
-		echo "<option value='".$id."'".(($category===$id)?" selected":"")
-			.">".$pname."</option>\n";
-	}
-?>
+<?php getCategoryList($videoObj->category); ?>
 </select>
 </td>
 <td style="text-align:center;">
 <select name="type">
-<option value='1'>CM</option>
-<option value='2'>エンディング</option>
-<option value='3'>その他</option>
+<option value='1'<?=($videoObj->type==1)?' selected':''?>>オープニング</option>
+<option value='2'<?=($videoObj->type==2)?' selected':''?>>エンディング</option>
+<option value='3'<?=($videoObj->type==3)?' selected':''?>>その他</option>
 </select>
 </td></tr>
-<tr><td><video id="thum" style="max-width:300px;max-height:240px;" controls>
-    <source src="<?=$target_file?>">
-</video></td></tr>
-<tr><td>キーワード</td></tr>
-<tr>
-<td colspan=3><textarea name="keywords"><?=$keywords?></textarea>
+<tr style="text-align:left;"><th></th><th>タイトル</th></tr>
+<tr><td>
+<?php if ($mi) { ?>
+<video id="thum" style="max-width:300px;max-height:240px;" controls>
+    <source src="<?=$mi?$videoObj->getFilePath():''?>">
+</video>
+<?php } else { ?>
+<video id="thum" style="max-width:300px;max-height:240px;" controls />
+<?php } ?>
 </td>
-<td>
+<td colspan=2 style="vertical-align:text-top;"><input id="title" name="title" type="text" size="40" value="<?=$videoObj->title?>"></td>
+<td style="vertical-align:text-top;">
 <?php
 if ($mi) {
-	echo '<input class="" type="submit" name="send" value="変更">';
+	if (!$share || $userLevel>10)
+		echo '<input class="button" type="submit" name="send" value="変更">';
+	else
+		$message = '共有されてる動画は変更できません！';
 } else {
-	echo '<input class="" type="submit" name="send" value="追加">';
+	echo '<input class="button" type="submit" name="send" value="追加">';
 }
 ?>
 </td></tr>
+<tr><td colspan=2></td><td>
+<?php if (!$mi && $userLevel>10) {
+echo '<input type="checkbox" id="share" name="share"><label for="share"><span></span></label>共有する<br><p style="font-size:12px;">
+他のユーザーと共有することができます。ただし、一度共有したものは変更ができません！</p>
+<p style="font-size:10px;">選択されてるカテゴリが共有カテゴリでない場合は無効です</p>';
+} ?>
+</td>
+</tr>
 <tr><td>&nbsp;</td></tr>
 <tr>
 <td style="text-align:left;"></td>
@@ -259,47 +207,51 @@ if ($mi) {
 </tr>
 </table>
 <input type='hidden' name='mi' value='<?=$mi?>'>
-<input type='hidden' name='file' value='<?=$file?>'>
 <br>
 
-<table class="kwtool" style="width:98%;">
-<tr><th>タイトル</th><th>ファイル</th><th>カテゴリー</th><th>キーワード</th><th>タイプ</th><th>編集</th><th>削除</th></tr>
+<table class="kwtool" style="width:98%;font-size:12px;">
+<tr><th>タイトル</th><th>ファイル名</th><th>カテゴリー</th><th>タイプ</th><th>編集</th><th><input type="checkbox" id="selectAll"><label for='selectAll'><span></span></label>削除</th></tr>
 <?php
 $rowCount = getNumList();
 $pageCount = (int)ceil($rowCount/$items_per_page);
-if (!$pageNo) {
-	$pageNo = $pageCount;
-}
+if (!$pageNo) $pageNo = $pageCount;
+
 // get reservation table data
 $offset = ($pageNo - 1) * $items_per_page;
-$imageList = getImageList($offset, $items_per_page);
+$imageList = getVideoList($offset, $items_per_page);
 if (count($imageList)) {
 	$i=1;
 	foreach ($imageList as $rec) {
 		$id = $rec['video_id'];
 		$tt = $rec['title'];
 		$fi = $rec['filename'];
-		$ca = $rec['category'];
-//		$ge = $rec['genre'];
-		$ke = $rec['keywords'];
+		$ca = $rec['cname'];
+//		$ke = $rec['keywords'];
 		$ty = $rec['video_type'];
+		$sh = $rec['group_id'];
 
 		echo "<tr>";
 		echo "<td>".$tt."</td>";
 		echo "<td>".$fi."</td>";
 		echo "<td style='text-align:center;'>".$ca."</td>";
-//		echo "<td>".$ge."</td>";
-		echo "<td>".$ke."</td>";
-		echo "<td>".$ty."</td>";
-		echo '<td><span class="button small"><a href="'.$selfName.'?mi='.$id.'&p='.$pageNo.'"><img src="img/icon_edit.png"></a></span>';
+//		echo "<td>".$ke."</td>";
+		switch ($ty) {
+		case 1: echo "<td>OP</td>"; break;
+		case 2: echo "<td>ED</td>"; break;
+		default: echo "<td></td>";
+		}
+//		echo "<td>".($sh?'×':'○')."</td>";
+		echo '<td><span class="small"><a href="'.$selfName.'?mi='.$id.'&p='.$pageNo.'"><img src="img/icon_edit.png"></a></span>';
 		echo "<input type='hidden' name='resId".$i."' value='".$id."' /></td>";
-		echo "<td><input type='checkbox' name='delete[]' value='".$i."' /></td>";
+		if ($sh)
+			echo "<td><input type='checkbox' id='d$i' class='delbtn' name='delete[]' value='".$i."' /><label for='d$i'><span></span></label></td>";
+		else
+			echo "<td><input type='checkbox' class='delbtn' name='delete[]' value='' disabled/></td>";
 		echo "</tr>\n";
 		
 		$i++;
 	}
 }
-//echo $genre.'<br><br>';
 ?>
 </table>
 
@@ -320,20 +272,31 @@ for ($i = 1; $i <= $pageCount; $i++) {
 session_write_close();
 ?>
 </div><!--end container_main-->
-<p class="footer_img"><br />Copyright © 2015 J Hirota. All rights Reserved.</p>
+<p class="footer_img"><br />Copyright © 2015-2016 J Hirota. All rights Reserved.</p>
 
 <script>
+$(function() {
+	$('#selectAll').click(function() {
+		var setvar = $(this).prop('checked');
+		$('.delbtn').each(function() {
+			$(this).prop('checked', setvar);
+		});
+	});
+});
+
+
 function readURL(input) {
 	if (input.files && input.files[0]) {
 		var reader = new FileReader();
 
 		reader.onload = function (e) {
 			$('#thum')
-				.attr('src', e.target.result)
+				.attr('src', e.target.result);
 		};
 
-		reader.readAsDataURL(input.files[0]);
-		$('#title').val(input.files[0].name.replace(/\.[^/.]+$/, ""));
+//		reader.readAsDataURL(input.files[0]);
+		if ($('#title').val()=="")
+			$('#title').val(input.files[0].name.replace(/\.[^/.]+$/, ""));
 	}
 }
 </script>

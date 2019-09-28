@@ -8,11 +8,7 @@ if ($_POST) {
 	$fid = isset($_POST['fi'])?$_POST['fi']:'';
 	$groupID = isset($_POST['ug'])?$_POST['ug']:0;
 	$category = isset($_POST['ct'])?$_POST['ct']:0;
-} else if ($_GET) {
-	$send = $_GET['send'];
-	$mItemRaw = $_GET['mItemData'];
-	$fid = isset($_GET['fi'])?$_GET['fi']:'';
-	$groupID = isset($_POST['ug'])?$_POST['ug']:0;
+	$type = isset($_POST['tp'])?$_POST['tp']:0;
 } else {
 	writeLog("Error: no parameters");
 	die('no parameters');
@@ -38,6 +34,42 @@ if ($send==="upload") { // has to be first because of up command
 			}
 		}
 	}
+} if ($send==="upo") { // upload to the first item
+	if ($debugmode) writeLog("upload to 1st command");
+	$type = 1;
+	if (isset($_FILES['file'])) {
+		$fileArr = rearangeFiles($_FILES["file"]);
+		$file = $fileArr[0];
+		$title = pathinfo($file['name'], PATHINFO_FILENAME);
+		$fname = str_replace(' ','',$file['name']);
+		$item = new imageDataClass(0,0,'','',$groupID);
+		$item->type = $type;
+		$item->reuse = 0;
+		if ($item->upload($title,$file,$category,0,'')) {
+//			$mItemData->offsetUnset(0);
+			$mItemData->unshift($item);
+			$mItemData->imageChanged = true;
+			if ($debugmode) writeLog("upload first complete! [".$fname."] id=".$item->imageId);
+		}
+	}
+} if ($send==="upe") { // upload to the last item
+	if ($debugmode) writeLog("upload to last command");
+	$type = 2;
+	if (isset($_FILES['file'])) {
+		$fileArr = rearangeFiles($_FILES["file"]);
+		$file = $fileArr[0];
+		$title = pathinfo($file['name'], PATHINFO_FILENAME);
+		$fname = str_replace(' ','',$file['name']);
+		$item = new imageDataClass(0,0,'','',$groupID);
+		$item->type = $type;
+		$item->reuse = 0;
+		if ($item->upload($title,$file,$category,0,'')) {
+//			$mItemData->pop();
+			$mItemData->push($item);
+			$mItemData->imageChanged = true;
+			if ($debugmode) writeLog("upload end complete! [".$fname."] id=".$item->imageId);
+		}
+	}
 } else if (strpos($send,"dp")!==false) {
 	$indx = substr($send, 2);
 	$tmpobj = $mItemData->offsetGet($fid);
@@ -49,34 +81,6 @@ if ($send==="upload") { // has to be first because of up command
 		$mItemData->offsetUnset($indx);
 	else
 		$mItemData->clear();
-} else if (strpos($send,"up")!==false) {
-	$indx = substr($send, 2);
-	if ($indx>0) {
-		$tmpobj = $mItemData->offsetGet($indx-1);
-		$mItemData->offsetSet($indx-1, $mItemData->offsetGet($indx));
-		$mItemData->offsetSet($indx, $tmpobj);
-	}
-} else if (strpos($send,"dn")!==false) {
-	$indx = substr($send, 2);
-	if ($indx<$mItemData->count()) {
-		$tmpobj = $mItemData->offsetGet($indx+1);
-		$mItemData->offsetSet($indx+1, $mItemData->offsetGet($indx));
-		$mItemData->offsetSet($indx, $tmpobj);
-	}
-} else if (strpos($send,"tp")!==false) {
-	$indx = substr($send, 2);
-	if ($indx>0) {
-		$tmpobj = $mItemData->offsetGet($indx);
-		$mItemData->offsetUnset($indx);
-		$mItemData->unshift($tmpobj);
-	}
-} else if (strpos($send,"bt")!==false) {
-	$indx = substr($send, 2);
-	if ($indx<$mItemData->count()) {
-		$tmpobj = $mItemData->offsetGet($indx);
-		$mItemData->offsetUnset($indx);
-		$mItemData->push($tmpobj);
-	}
 } else if ($send==="clear") {
 	$mItemData->clear();
 } else if ($send==="select") {
@@ -91,7 +95,6 @@ if ($send==="upload") { // has to be first because of up command
 	}
 }
 
-
 $n = $mItemData->count();
 
 $exHtml = '';
@@ -99,22 +102,24 @@ if ($n>0) {
 	$col = 1;
 	for ($i=0; $i<$n; $i++) {
 		$item = $mItemData->offsetGet($i);
-//		writeLog($i." path=".$item->getThumbPath());
-		$exHtml .= "<img class='imagecell' id='mv".$i
-			."' style='max-width:100px;max-height:62px;' src='".$item->getThumbPath()."'>"
-			."<input type='button' class='delImageBtn' name='send' value='x' id='dl".$i."'> ";
-		$col++;
-		if ($col>9) {
-			$exHtml .= "<br>";
-			$col = 1;
+		if (!$type || $item->type==$type) {
+	//		writeLog($i." path=".$item->getThumbPath());
+			$exHtml .= "<img class='imagecell' id='mv".$i
+				."' style='max-width:100px;max-height:62px;' src='".$item->getThumbPath()."'>"
+				."<input type='button' class='delImageBtn' name='send' value='x' id='dl".$i."'> ";
+			$col++;
+/*			if (!$type && $col>9) {
+				$exHtml .= "<br>";
+				$col = 1;
+			} */
 		}
 	}
-//	$exHtml .= "\n";
 //	writeLog($exHtml);
 }
 $result = array(
 	'exhtml' => $exHtml,
-	'mitemdata' => $mItemData->encode()
+	'mitemdata' => $mItemData->encode(),
+	'type' => $type
 	);
 $json = json_encode($result);
 echo $json;
